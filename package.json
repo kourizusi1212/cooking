@@ -1,0 +1,9 @@
+{
+  "name": "wai-wai-kitchen",
+  "version": "1.0.0",
+  "description": "最大5人で遊べる協力3D料理ゲーム",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=16" },
+  "license": "MIT"
+}
