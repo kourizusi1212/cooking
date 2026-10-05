@@ -108,6 +108,7 @@ class WS {
 // ---------------------------------------------------------------- HTTP
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
+  if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
   if (url === '/' || url === '/index.html') {
     fs.readFile(path.join(__dirname, 'index.html'), (err, data) => {
       if (err) { res.writeHead(500); res.end('index.html not found'); return; }
@@ -367,7 +368,7 @@ function onConnection(ws) {
   };
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('\n🍔 ワイワイキッチン サーバー起動！');
   console.log(`  この PC から:  http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {

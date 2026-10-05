@@ -1,0 +1,10 @@
+# Render Blueprint: GitHub に push して「New > Blueprint」で選ぶだけでデプロイできます
+services:
+  - type: web
+    name: wai-wai-kitchen
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
