@@ -29,7 +29,7 @@
   #stats .time.low{color:var(--tomato)}
   #rail{position:absolute;left:176px;right:190px;top:0;display:flex;gap:12px;align-items:flex-start;
     border-top:6px solid #b8c4c8;padding-top:0}
-  .ticket{position:relative;width:148px;background:var(--paper);color:var(--ink);padding:0 0 10px;
+  .ticket{position:relative;width:160px;background:var(--paper);color:var(--ink);padding:0 0 10px;
     margin-bottom:8px;box-shadow:0 3px 0 rgba(0,0,0,.25);transform-origin:top center;animation:hang .5s ease-out}
   .ticket::before{content:"";display:block;height:6px;background:var(--tomato)}
   .ticket::after{content:"";position:absolute;left:0;right:0;bottom:-7px;height:7px;
@@ -94,6 +94,10 @@
   .share{margin-top:6px;font-size:12.5px;opacity:.7;word-break:break-all;-webkit-user-select:text;user-select:text}
   .result{font-size:64px;font-weight:900;color:var(--mustard);line-height:1.1;margin:6px 0}
   .stat{display:flex;gap:24px;font-weight:800;margin-bottom:6px}
+  #keysbar{position:absolute;left:16px;bottom:16px;font-size:12.5px;font-weight:800;padding:8px 12px;display:flex;gap:6px 14px;flex-wrap:wrap;max-width:44vw}
+  #keysbar span{white-space:nowrap}
+  #charge{position:absolute;left:50%;top:58%;width:160px;height:12px;margin-left:-80px;background:rgba(16,37,44,.85);border-radius:8px;overflow:hidden;border:2px solid #0b1a1f}
+  #charge i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffc531,#e4442f)}
   @media (max-width:900px){ #rail{left:16px;right:16px;top:120px} #plist{display:none} }
   @media (prefers-reduced-motion:reduce){ .ticket,.toast,.ticket.late{animation:none} }
 </style>
@@ -110,6 +114,11 @@
   <div id="cross"></div>
   <div id="hint"></div>
   <div id="held" class="pill" hidden></div>
+  <div id="keysbar" class="pill">
+    <span><kbd>E</kbd> 取る・置く</span><span><kbd>F</kbd> 切る</span>
+    <span><kbd>Q</kbd> その場に置く</span><span><kbd>R</kbd> 長押しして離すと投げる</span>
+  </div>
+  <div id="charge" hidden><i></i></div>
   <div id="toasts"></div>
   <div id="click" class="pill" hidden>画面をクリックして操作開始</div>
 </div>
@@ -140,12 +149,16 @@
           <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>移動（Shiftで走る）／マウスで見回す</dd>
           <dt><kbd>E</kbd></dt><dd>取る・置く・皿に乗せる・提供する（左クリックでも可）</dd>
           <dt><kbd>F</kbd></dt><dd>まな板の野菜を切る（右クリックでも可）</dd>
+          <dt><kbd>Q</kbd></dt><dd>持っているものをその場に置く（台の上にも置ける）</dd>
+          <dt><kbd>R</kbd></dt><dd>長押しで力をため、離すと投げる。仲間はキャッチ可能！</dd>
           <dt><kbd>Esc</kbd></dt><dd>マウスを解放</dd>
         </dl>
         <div class="tips">
           <b>コツ</b> 生パティはグリルへ。バーが緑のうちに取らないと焦げる。<br>
-          レタスとトマトはまな板に置いて <kbd>F</kbd> を4回。<br>
-          お皿にバンズ・パティ・野菜を乗せて、手前の「提供口」へ。
+          野菜はまな板で <kbd>F</kbd> を4回。お皿にバンズ・パティ・野菜を乗せて「提供口」へ。<br>
+          <b>パスタ</b> は乾燥パスタをお鍋でゆでて（約10秒）皿へ。<br>
+          <b>スープ</b> は切った野菜を2種類以上お鍋に入れ、ボウルですくう。<br>
+          提供口に向かって料理を<b>投げ入れる</b>こともできる！
         </div>
         <button class="main" id="btnStart">ゲームスタート（5分）</button>
       </div>
@@ -174,14 +187,21 @@
 const $ = id => document.getElementById(id);
 
 // ======================================================= 定数・ラベル
-const ING = { bun: 'バンズ', patty: 'パティ', lettuce: 'レタス', tomato: 'トマト', plate: 'お皿' };
+const ING = { bun: 'バンズ', patty: 'パティ', lettuce: 'レタス', tomato: 'トマト', onion: '玉ねぎ', pasta: 'パスタ', plate: 'お皿', bowl: 'ボウル' };
 const ITEM_LABEL = {
   bun: '🍞 バンズ', patty_cooked: '🥩 焼いたパティ',
   lettuce_chopped: '🥬 刻みレタス', tomato_chopped: '🍅 刻みトマト',
+  onion_chopped: '🧅 刻み玉ねぎ', pasta_cooked: '🍝 ゆでパスタ',
 };
+function labelFor(k) {
+  if (k.startsWith('soup_')) return '🍲 ' + k.slice(5).split('+').map(x => ING[x]).join('＋') + 'のスープ（ボウル）';
+  return ITEM_LABEL[k] || k;
+}
 function iname(it) {
   if (it.k === 'plate') return it.c && it.c.length ? 'お皿（盛り付け中）' : 'お皿';
+  if (it.k === 'bowl') return it.c && it.c.length ? 'ボウル（スープ入り）' : 'ボウル';
   if (it.k === 'patty') return { raw: '生パティ', cooked: '焼きパティ', burnt: '焦げたパティ' }[it.s] || 'パティ';
+  if (it.k === 'pasta') return it.s === 'cooked' ? 'ゆでパスタ' : '乾燥パスタ';
   if (it.s === 'chopped') return '刻み' + ING[it.k];
   return ING[it.k];
 }
@@ -261,6 +281,36 @@ function addTomatoChopped(g, ox, oy, oz, s) {
   });
 }
 
+const gOnion = new THREE.SphereGeometry(0.15, 14, 10), gOnionLayer = cy(0.2, 0.2, 0.025, 14);
+const gPastaStick = cy(0.012, 0.012, 0.36, 6), gRing = new THREE.TorusGeometry(0.1, 0.028, 8, 18);
+const gMeatball = new THREE.SphereGeometry(0.06, 10, 8);
+const gBowlShell = new THREE.SphereGeometry(0.24, 22, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+const gSoup = cy(0.21, 0.21, 0.01, 22), gPotLiquid = cy(0.38, 0.38, 0.02, 28);
+const mOnion = M(0xd9a441), mOnionIn = M(0xf3ecd9), mOnionTip = M(0x8a6a2a);
+const mPastaRaw = M(0xf1d27a), mPastaCooked = M(0xf3c75a, { roughness: 0.5 });
+const mBowl = M(0xf2f6f8, { roughness: 0.3, side: THREE.DoubleSide });
+const mVeg = { tomato: mTom, onion: mOnionIn, lettuce: mLet };
+const soupMats = {};
+function soupColor(v) { return v.includes('tomato') ? (v.includes('lettuce') ? 0xc9602c : 0xd84a2a) : v.includes('lettuce') ? 0xb8d76f : 0xe7d9a0; }
+function soupMat(c) { return soupMats[c] || (soupMats[c] = M(c, { roughness: 0.2 })); }
+
+function addOnionChopped(g, ox, oy, oz, s) {
+  for (let i = 0; i < 6; i++) {
+    const a = i * 1.1, rr = (0.04 + (i % 3) * 0.02) * s;
+    const m = addMesh(g, gLetPiece, mOnionIn, ox + Math.cos(a) * rr, oy + 0.014 + (i % 2) * 0.02, oz + Math.sin(a) * rr, s * 0.8, s, s * 0.8);
+    m.rotation.y = i * 1.7;
+  }
+}
+function addPastaNest(g, ox, oy, oz, s) {
+  for (let i = 0; i < 4; i++) {
+    const k = s * (1 - i * 0.1);
+    addMesh(g, gRing, mPastaCooked, ox, oy + (0.03 + i * 0.032) * s, oz, k, k, k).rotation.x = Math.PI / 2;
+  }
+}
+function addPastaRaw(g, ox, oy, oz) {
+  for (let i = 0; i < 7; i++) addMesh(g, gPastaStick, mPastaRaw, ox, oy + 0.02 + (i % 2) * 0.022, oz + (i - 3) * 0.026).rotation.z = Math.PI / 2;
+}
+
 function buildItem(it) {
   const g = new THREE.Group();
   switch (it.k) {
@@ -279,6 +329,19 @@ function buildItem(it) {
       if (it.s === 'chopped') addTomatoChopped(g, 0, 0, 0, 1.3);
       else { addMesh(g, gTomRaw, mTom, 0, 0.14, 0); addMesh(g, gTomStem, mStem, 0, 0.29, 0); }
       break;
+    case 'onion':
+      if (it.s === 'chopped') addOnionChopped(g, 0, 0, 0, 1.3);
+      else { addMesh(g, gOnion, mOnion, 0, 0.14, 0, 1, 0.9, 1); addMesh(g, gTomStem, mOnionTip, 0, 0.28, 0); }
+      break;
+    case 'pasta':
+      if (it.s === 'cooked') addPastaNest(g, 0, 0, 0, 1.2); else addPastaRaw(g, 0, 0, 0);
+      break;
+    case 'bowl': {
+      addMesh(g, gBowlShell, mBowl, 0, 0.19, 0, 1, 0.75, 1);
+      const c = it.c && it.c[0];
+      if (c) addMesh(g, gSoup, soupMat(soupColor(c[1])), 0, 0.15, 0).castShadow = false;
+      break;
+    }
     case 'plate': {
       addMesh(g, gPlate, mPlate, 0, 0.02, 0);
       const c = it.c || [];
@@ -288,15 +351,23 @@ function buildItem(it) {
         addMesh(g, gBunB, mBun, 0, y + 0.03, 0); y += 0.06;
         const p = has('patty');
         if (p) { addMesh(g, gPatty, mPatty[p[1]] || mPatty.cooked, 0, y + 0.03, 0); y += 0.06; }
+        if (has('onion')) { addMesh(g, gOnionLayer, mOnionIn, 0, y + 0.0125, 0); y += 0.025; }
         if (has('lettuce')) { addMesh(g, gLetLayer, mLet, 0, y + 0.015, 0); y += 0.03; }
         if (has('tomato')) { addMesh(g, gTomLayer, mTom, 0, y + 0.015, 0); y += 0.03; }
         addMesh(g, gDome, mBunTop, 0, y, 0, 1, 0.8, 1);
+      } else if (has('pasta')) {
+        addPastaNest(g, 0, 0.04, 0, 1.1);
+        const top = 0.04 + 0.04 * 3.5;
+        if (has('patty')) { [[0, 0.04], [0.07, -0.03], [-0.06, -0.04]].forEach((q, i) => addMesh(g, gMeatball, mPatty.cooked, q[0], top + (i ? 0 : 0.03), q[1])); }
+        if (has('tomato')) addTomatoChopped(g, 0.04, top - 0.03, 0.04, 0.8);
+        if (has('onion')) addOnionChopped(g, -0.05, top - 0.03, -0.04, 0.8);
       } else {
         const spots = [[-0.1, 0.0], [0.1, 0.0], [0, 0.12]];
         let n = 0;
         if (has('patty')) { addMesh(g, gPatty, mPatty.cooked, 0, 0.07, -0.08, 0.9, 1, 0.9); n++; }
-        if (has('lettuce')) { const s = spots[n % 3]; addLettuceChopped(g, s[0], 0.04, s[1], 1.1); n++; }
-        if (has('tomato')) { const s = spots[n % 3]; addTomatoChopped(g, s[0], 0.04, s[1], 1.2); n++; }
+        if (has('lettuce')) { const q = spots[n % 3]; addLettuceChopped(g, q[0], 0.04, q[1], 1.1); n++; }
+        if (has('tomato')) { const q = spots[n % 3]; addTomatoChopped(g, q[0], 0.04, q[1], 1.2); n++; }
+        if (has('onion')) { const q = spots[n % 3]; addOnionChopped(g, q[0], 0.04, q[1], 1.1); n++; }
       }
       break;
     }
@@ -347,8 +418,10 @@ const ROOM_W = 17, ROOM_D = 12;
   m.fillStyle = '#f5f5ee'; m.textAlign = 'left'; m.textBaseline = 'middle';
   m.font = '800 38px "M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Meiryo",sans-serif';
   m.fillText('本日のメニュー', 120, 50);
-  m.font = '700 27px "M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Meiryo",sans-serif';
-  ['ハンバーガー', 'レタスバーガー', 'トマトバーガー', 'デラックスバーガー', 'ガーデンサラダ'].forEach((s, i) => m.fillText('・' + s, 70, 105 + i * 44));
+  m.font = '700 21px "M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Meiryo",sans-serif';
+  ['ハンバーガー', 'レタスバーガー', 'トマトバーガー', 'オニオンバーガー', 'デラックスバーガー', 'ガーデンサラダ',
+   'トマトパスタ', 'ミートパスタ', 'ナポリタン', 'トマトスープ', '野菜スープ', 'ミネストローネ']
+    .forEach((s, i) => m.fillText('・' + s, i < 6 ? 34 : 276, 96 + (i % 6) * 36));
   const board = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(mc) }));
   board.position.set(5.4, 2.2, -ROOM_D / 2 + 0.02); scene.add(board);
 
@@ -428,6 +501,8 @@ function buildStation(s) {
       if (s.kind === 'patty') { pile('patty', 'raw', 4, -0.4, 0, 0.065); pile('patty', 'raw', 4, 0.1, -0.15, 0.065); pile('patty', 'raw', 3, 0.45, 0.2, 0.065); }
       if (s.kind === 'lettuce') { [[-0.45, 0], [0.0, 0.1], [0.45, -0.05], [-0.2, -0.3]].forEach(p => pile('lettuce', 'raw', 1, p[0], p[1], 0)); }
       if (s.kind === 'tomato') { [[-0.5, -0.2], [-0.15, -0.25], [0.2, -0.2], [0.55, -0.2], [-0.3, 0.2], [0.1, 0.22], [0.45, 0.2]].forEach(p => pile('tomato', 'raw', 1, p[0], p[1], 0)); }
+      if (s.kind === 'onion') { [[-0.5, -0.2], [-0.15, -0.25], [0.2, -0.2], [0.55, -0.2], [-0.3, 0.2], [0.1, 0.22], [0.45, 0.2]].forEach(q => pile('onion', 'raw', 1, q[0], q[1], 0)); }
+      if (s.kind === 'pasta') { [[-0.45, 0], [0.05, -0.2], [0.5, 0.15]].forEach(q => pile('pasta', 'raw', 1, q[0], q[1], 0)); pile('pasta', 'raw', 2, -0.1, 0.22, 0.05); }
       const lb = makeLabel(ING[s.kind], { width: 1.3 }); lb.position.set(0, 1.85, 0); g.add(lb);
       break;
     }
@@ -446,6 +521,23 @@ function buildStation(s) {
       const lb = makeLabel('提供口', { width: 1.6, bg: 'rgba(47,143,99,.95)' }); lb.position.set(0, 1.6, 0); g.add(lb);
       break;
     }
+    case 'bowls': {
+      cabinet(g, s, M(0xdfe5e8), steel);
+      [-0.4, 0.4].forEach(px => { for (let i = 0; i < 5; i++) addMesh(g, gBowlShell, mBowl, px, 1.18 + i * 0.05, 0, 1, 0.75, 1); });
+      const lb = makeLabel('ボウル', { width: 1.2 }); lb.position.set(0, 1.7, 0); g.add(lb);
+      break;
+    }
+    case 'pot': {
+      cabinet(g, s, M(0x30363a), M(0x1b1d1f));
+      addMesh(g, cy(0.38, 0.38, 0.03, 24), M(0x3a1a12, { emissive: 0xc2410f, emissiveIntensity: 0.5 }), 0, 1.015, 0);
+      const steel2 = M(0x8c99a1, { metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
+      addMesh(g, new THREE.CylinderGeometry(0.42, 0.4, 0.5, 28, 1, true), steel2, 0, 1.27, 0);
+      addMesh(g, cy(0.4, 0.4, 0.03, 28), M(0x2a2f33), 0, 1.04, 0);
+      addMesh(g, new THREE.TorusGeometry(0.42, 0.025, 8, 28), steel2, 0, 1.52, 0).rotation.x = Math.PI / 2;
+      [-1, 1].forEach(sx => addMesh(g, bx(0.14, 0.04, 0.06), M(0x222222), sx * 0.5, 1.42, 0));
+      const lb = makeLabel('お鍋', { width: 1.0 }); lb.position.set(0, 2.05, 0); g.add(lb);
+      break;
+    }
     case 'trash': {
       addMesh(g, cy(0.45, 0.4, 0.95, 20), M(0x4a5258), 0, 0.475, 0);
       addMesh(g, cy(0.5, 0.5, 0.06, 20), M(0x2e3438), 0, 0.98, 0);
@@ -454,9 +546,9 @@ function buildStation(s) {
     }
   }
   const holder = { sig: '', mesh: null };
-  const bar = (s.type === 'grill' || s.type === 'board') ? makeBar() : null;
+  const bar = (s.type === 'grill' || s.type === 'board' || s.type === 'pot') ? makeBar() : null;
   if (bar) bar.position.set(s.x, 1.75, s.z);
-  return { def: s, group: g, holder, bar, itemY };
+  return { def: s, group: g, holder, bar, itemY, potVis: null, potSig: '' };
 }
 
 // ハイライト枠
@@ -490,8 +582,9 @@ let phase = 'lobby', roomName = '';
 let stationState = [];
 let myHeld = null;
 const keys = {};
+let charging = false, chargeT = 0;
 let px = 0, pz = 2.5, yaw = 0, pitch = 0, bobT = 0, locked = false, moving = false;
-let target = null;
+let target = null, floorTarget = null;
 
 // 手に持っているアイテム（一人称）
 const heldView = { sig: '', mesh: null };
@@ -501,6 +594,57 @@ function syncHolder(h, parent, it, place) {
   h.sig = sig;
   if (h.mesh) { parent.remove(h.mesh); h.mesh = null; }
   if (it) { h.mesh = buildItem(it); place(h.mesh); parent.add(h.mesh); }
+}
+
+// ======================================================= 床・投げたもの
+const floorViews = new Map();
+function onFloor(list) {
+  const seen = new Set();
+  for (const f of list) {
+    seen.add(f.i);
+    let v = floorViews.get(f.i);
+    if (!v) {
+      v = { g: new THREE.Group(), holder: { sig: '', mesh: null }, x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, fly: false, spin: Math.random() * 6, it: f.it, tx: f.x, ty: f.y, tz: f.z };
+      scene.add(v.g); floorViews.set(f.i, v);
+    }
+    v.it = f.it; v.tx = f.x; v.ty = f.y; v.tz = f.z;
+    if (f.v) { v.fly = true; v.x = f.x; v.y = f.y; v.z = f.z; v.vx = f.v[0]; v.vy = f.v[1]; v.vz = f.v[2]; }
+    else v.fly = false;
+  }
+  for (const [id, v] of floorViews) if (!seen.has(id)) { scene.remove(v.g); floorViews.delete(id); }
+}
+function updateFloor(dt) {
+  const G = cfg.g || 14, k = 1 - Math.exp(-14 * dt);
+  for (const v of floorViews.values()) {
+    if (v.fly) {
+      v.x += v.vx * dt; v.y += v.vy * dt; v.z += v.vz * dt; v.vy -= G * dt;
+      if (v.y < 0) v.y = 0;
+      v.spin += dt * 9; v.g.rotation.y = v.spin;
+    } else { v.x += (v.tx - v.x) * k; v.y += (v.ty - v.y) * k; v.z += (v.tz - v.z) * k; }
+    v.g.position.set(v.x, v.y, v.z);
+    syncHolder(v.holder, v.g, v.it, m => m.position.set(0, 0, 0));
+  }
+}
+function findFloor() {
+  if (myHeld || phase !== 'playing') return null;
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+  let best = null, bs = 1e9;
+  for (const [id, v] of floorViews) {
+    if (v.fly) continue;
+    const dx = v.x - px, dz = v.z - pz, d = Math.hypot(dx, dz);
+    if (d > 1.9) continue;
+    const dot = d < 0.05 ? 1 : (dx * fx + dz * fz) / d;
+    if (dot < 0.45) continue;
+    const sc = d - dot * 0.6;
+    if (sc < bs) { bs = sc; best = { id, v }; }
+  }
+  return best;
+}
+function updateCharge(now) {
+  if (charging && (!myHeld || phase !== 'playing')) charging = false;
+  const box = $('charge');
+  box.hidden = !charging;
+  if (charging) box.firstElementChild.style.width = Math.min(100, (now - chargeT) / 9) + '%';
 }
 
 // ======================================================= 通信
@@ -570,6 +714,7 @@ function onState(m) {
   for (const [id, rv] of remote) if (!seen.has(id)) { scene.remove(rv.g); remote.delete(id); }
   // ステーション
   m.s.forEach((it, i) => { stationState[i] = it; });
+  onFloor(m.f || []);
 
   // HUD
   $('score').textContent = m.sc;
@@ -612,7 +757,7 @@ function syncOrders(list) {
       el = document.createElement('div'); el.className = 'ticket';
       const tt = document.createElement('div'); tt.className = 'tt'; tt.textContent = o.n;
       const ul = document.createElement('ul');
-      o.it.forEach(k => { const li = document.createElement('li'); li.textContent = ITEM_LABEL[k] || k; ul.append(li); });
+      o.it.forEach(k => { const li = document.createElement('li'); li.textContent = labelFor(k); ul.append(li); });
       const tb = document.createElement('div'); tb.className = 'tb'; tb.append(document.createElement('i'));
       el.append(tt, ul, tb); $('rail').append(el); orderEls.set(o.i, el);
     }
@@ -689,9 +834,18 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'KeyE') doUse();
   if (e.code === 'KeyF') doChop();
+  if (e.code === 'KeyQ' && joined && phase === 'playing' && myHeld) send({ t: 'dr', r: yaw });
+  if (e.code === 'KeyR' && joined && phase === 'playing' && myHeld) { charging = true; chargeT = performance.now(); }
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code === 'KeyR' && charging) {
+    charging = false;
+    const pw = Math.min(1, (performance.now() - chargeT) / 900);
+    send({ t: 'th', pw: Math.max(0.2, pw), r: yaw, pt: pitch });
+  }
+});
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; charging = false; });
 addEventListener('contextmenu', e => e.preventDefault());
 
 renderer.domElement.addEventListener('mousedown', e => {
@@ -707,7 +861,11 @@ document.addEventListener('mousemove', e => {
   yaw -= e.movementX * 0.0024;
   pitch = Math.max(-1.35, Math.min(1.35, pitch - e.movementY * 0.0024));
 });
-function doUse() { if (joined && phase === 'playing' && target) send({ t: 'u', s: target.def.id }); }
+function doUse() {
+  if (!joined || phase !== 'playing') return;
+  if (floorTarget) send({ t: 'pu', f: floorTarget.id });
+  else if (target) send({ t: 'u', s: target.def.id });
+}
 function doChop() { if (joined && phase === 'playing' && target) send({ t: 'f', s: target.def.id }); }
 
 // ======================================================= 移動・当たり判定
@@ -756,7 +914,7 @@ function findTarget() {
 // ======================================================= ヒント表示
 function hintFor(v) {
   const s = v.def, it = stationState[s.id], h = myHeld, out = [];
-  const veg = x => x && (x.k === 'lettuce' || x.k === 'tomato');
+  const veg = x => x && (x.k === 'lettuce' || x.k === 'tomato' || x.k === 'onion');
   switch (s.type) {
     case 'crate':
       if (!h) out.push(['E', ING[s.kind] + 'を取る']);
@@ -764,9 +922,24 @@ function hintFor(v) {
       else out.push(['', '手がふさがっている']);
       break;
     case 'plates': out.push(h ? ['', '手がふさがっている'] : ['E', 'お皿を取る']); break;
+    case 'bowls': out.push(h ? ['', '手がふさがっている'] : ['E', 'ボウルを取る']); break;
+    case 'pot': {
+      const pt = it && it.pot ? it : null;
+      if (!h) {
+        if (!pt || !pt.m) out.push(['', 'お鍋（空）']);
+        else if (pt.s === 'burnt') out.push(['E', '中身を捨てる']);
+        else if (pt.m === 'pasta') out.push(pt.s === 'cooked' ? ['E', 'ゆでパスタを取る'] : ['', 'ゆで中…']);
+        else out.push(['', pt.it.length < 2 ? '具をあと' + (2 - pt.it.length) + '種類入れよう' : pt.s === 'cooked' ? 'ボウルですくおう' : '煮込み中…']);
+      } else if (h.k === 'bowl') out.push(['E', 'スープをすくう']);
+      else if (h.k === 'plate') out.push(['E', 'ゆでパスタを皿に乗せる']);
+      else if (h.k === 'pasta') out.push(['E', 'ゆでる']);
+      else if (veg(h)) out.push(['E', '具を入れる']);
+      else out.push(['', '入れられない']);
+      break;
+    }
     case 'trash': out.push(h ? ['E', '捨てる'] : ['', 'ゴミ箱']); break;
     case 'serve':
-      out.push(h && h.k === 'plate' && h.c && h.c.length ? ['E', '提供する'] : ['', 'お皿に料理を乗せて持ってこよう']);
+      out.push(h && (h.k === 'plate' || h.k === 'bowl') && h.c && h.c.length ? ['E', '提供する'] : ['', 'お皿に料理を乗せて持ってこよう']);
       break;
     default:
       if (!h && it) out.push(['E', iname(it) + 'を取る']);
@@ -786,7 +959,8 @@ function hintFor(v) {
 let lastHint = '';
 function updateHint() {
   let list = [];
-  if (phase === 'playing' && target) list = hintFor(target);
+  if (phase === 'playing' && floorTarget) list = [['E', iname(floorTarget.v.it) + 'を拾う']];
+  else if (phase === 'playing' && target) list = hintFor(target);
   const sig = JSON.stringify(list);
   if (sig === lastHint) return;
   lastHint = sig;
@@ -799,15 +973,45 @@ function updateHint() {
 }
 
 // ======================================================= 毎フレーム更新
+function syncPot(v, st) {
+  const sig = st && st.pot ? JSON.stringify([st.m, st.it, st.s]) : '';
+  if (sig === v.potSig) return;
+  v.potSig = sig;
+  if (v.potVis) { v.group.remove(v.potVis); v.potVis = null; }
+  if (!st || !st.m) return;
+  const g = new THREE.Group();
+  let col;
+  if (st.s === 'burnt') col = 0x2b2118;
+  else if (st.m === 'pasta') col = 0xa9d8ea;
+  else col = soupColor(st.it.slice().sort().join('+'));
+  addMesh(g, gPotLiquid, soupMat(col), 0, 1.38, 0).castShadow = false;
+  if (st.m === 'pasta') {
+    if (st.s === 'raw') addPastaRaw(g, 0, 1.38, 0);
+    else if (st.s === 'cooked') addPastaNest(g, 0, 1.38, 0, 1.4);
+  } else if (st.s === 'raw') {
+    st.it.forEach((k, i) => {
+      for (let j = 0; j < 4; j++) {
+        const a = i * 3.1 + j * 1.5;
+        addMesh(g, gLetPiece, mVeg[k], Math.cos(a) * 0.2, 1.4, Math.sin(a) * 0.2, 1.6, 1.6, 1.6).rotation.y = a;
+      }
+    });
+  }
+  v.group.add(g); v.potVis = g;
+}
 function updateStations() {
   for (const v of stationViews) {
     const it = stationState[v.def.id];
-    syncHolder(v.holder, v.group, it, m => m.position.set(0, v.itemY, 0));
+    if (v.def.type === 'pot') syncPot(v, it);
+    else syncHolder(v.holder, v.group, it, m => m.position.set(0, v.itemY, 0));
     if (v.bar) {
       let frac = 0, col = 0x5fd35f, show = false;
       if (it && v.def.type === 'grill' && it.k === 'patty') {
         const ck = it.ck || 0; show = true; frac = Math.min(1, ck / cfg.burn);
         col = it.s === 'burnt' ? 0x444444 : ck < cfg.cook ? 0xffc531 : ck > cfg.burn - 4 ? 0xe4442f : 0x5fd35f;
+      } else if (it && it.pot && it.m && (it.m === 'pasta' || it.it.length >= 2)) {
+        const rd = it.m === 'pasta' ? cfg.pasta : cfg.soup, bn = it.m === 'pasta' ? cfg.pastaBurn : cfg.soupBurn, ck = it.ck || 0;
+        show = true; frac = Math.min(1, ck / bn);
+        col = it.s === 'burnt' ? 0x444444 : ck < rd ? 0xffc531 : ck > bn - 4 ? 0xe4442f : 0x5fd35f;
       } else if (it && v.def.type === 'board' && it.s === 'raw' && it.p) {
         show = true; frac = it.p / 100; col = 0x4fb4ff;
       }
@@ -818,7 +1022,10 @@ function updateStations() {
       }
     }
   }
-  if (target) {
+  if (floorTarget) {
+    const f = floorTarget.v;
+    hl.visible = true; hl.position.set(f.x, f.y + 0.15, f.z); hl.scale.set(0.7, 0.4, 0.7);
+  } else if (target) {
     const s = target.def;
     hl.visible = true; hl.position.set(s.x, 0.5, s.z); hl.scale.set(s.w + 0.06, 1.04, s.d + 0.06);
   } else hl.visible = false;
@@ -845,8 +1052,11 @@ function loop(now) {
     if (!idle || firstState === false) updateLocal(dt);
     if (now - lastSend > 50) { lastSend = now; send({ t: 'p', x: px, z: pz, r: yaw }); }
     updateRemote(dt);
-    target = idle ? null : findTarget();
+    updateFloor(dt);
+    floorTarget = idle ? null : findFloor();
+    target = idle || floorTarget ? null : findTarget();
     updateStations();
+    updateCharge(now);
     updateHint();
     syncHolder(heldView, camera, myHeld, m => { m.position.set(0.36, -0.42, -0.75); m.rotation.y = -0.35; m.scale.setScalar(1.25); });
     $('click').hidden = !(phase === 'playing' && !locked);
